@@ -1,0 +1,49 @@
+name: test
+
+# Unit tests only. The system suite under tests/system needs a Hyper-V host and a
+# Windows ISO, neither of which hosted runners provide, so Invoke-SystemTest.ps1
+# stays a local-only tool.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install Pester 5 and PwshAnsi
+        shell: pwsh
+        run: |
+          $pester = Get-Module -ListAvailable -Name Pester |
+              Where-Object { $_.Version -ge [version]'5.0.0' -and $_.Version -lt [version]'6.0.0' }
+          if (-not $pester) {
+              Install-Module Pester -Scope CurrentUser -MinimumVersion 5.5.0 -MaximumVersion 5.99.99 `
+                  -Force -SkipPublisherCheck -AllowClobber
+          }
+          # The source imports PwshAnsi, so unit tests that touch the modules need it on PATH.
+          Install-Module PwshAnsi -Scope CurrentUser -MinimumVersion 0.1.9 -Force
+
+      - name: Run unit tests
+        shell: pwsh
+        run: ./Invoke-Test.ps1 -Output Detailed -ResultPath ./unit-results.xml -SkipInstall
+
+      - name: Keep the NUnit results
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: unit-results
+          path: unit-results.xml
+          if-no-files-found: warn
